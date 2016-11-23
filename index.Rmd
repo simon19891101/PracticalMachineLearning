@@ -1,0 +1,81 @@
+---
+title: "Practical_machine_learning_assignment"
+author: "Hang_YU"
+date: "November 23, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache = TRUE)
+library(caret)
+library(doParallel)
+library(randomForest)
+```
+
+##Getting and Cleaning Data
+Load dependency libraries
+```{r,eval=FALSE}
+library(caret)
+library(doParallel)
+library(randomForest)
+```
+Load training data and testing data
+```{r}
+pml_training <- read.csv("~/pml_training.csv",na.strings = c("NA","#DIV/0!",""))
+pml_testing <- read.csv("~/pml_testing.csv",na.strings = c("NA","#DIV/0!",""))
+```
+Since both training set and testing set contain columns with NA, we remove those columns.
+```{r}
+NA_feature <- apply(pml_training, 2, function(x) any(is.na(x)))
+training <- pml_training[,!NA_feature]
+testing <- pml_testing[,!NA_feature]
+```
+The clean data sets contain 49 predictors as shown below, which needs to be down scaled.
+```{r}
+dim(training)
+```
+##Data Partition
+The training set is splitted to one sub training set and one validation set for building the model. Besides, we do the first dimension reducing by removing the columns that are only for information reference such as sequence number.
+```{r}
+InTrain <- createDataPartition(training$classe,p=0.7,list=FALSE)
+trainSet <- training[InTrain,-c(1:5)]
+validSet <- training[-InTrain,-c(1:5)]
+dim(trainSet)
+```
+##Dimension Reduction
+In order to reduce dimension, we check if there exists any zero-variance predictor
+```{r}
+nzv <- nearZeroVar(trainSet,saveMetrics = TRUE)
+nzv
+```
+Fairly there is no much to do with the result of nzv.
+They we run a fast random forest and test variable importance for dimension reducing.
+```{r}
+registerDoParallel()
+preModel <- randomForest(classe~.,data=trainSet)
+varImpPlot(preModel)
+```
+
+We pick the top 8 variables with high Gini index decrease as the final predictor. 
+If the prediction accuracy is not good then we add in more predictors.
+```{r}
+trainSet <- trainSet[,c("num_window","roll_belt","yaw_belt","pitch_forearm","magnet_dumbbell_z","pitch_belt","magnet_dumbbell_y","accel_dumbbell_y","classe")]
+validSet <- validSet[,c("num_window","roll_belt","yaw_belt","pitch_forearm","magnet_dumbbell_z","pitch_belt","magnet_dumbbell_y","accel_dumbbell_y","classe")]
+dim(trainSet)
+```
+##Model Training and Testing
+We use caret package to train and test the model. Random forest with cross validation (10 k-fold) is used here.
+```{r}
+registerDoParallel()
+modelFit <- train(classe~.,data=trainSet,method="rf",trControl=trainControl(method = "cv"))
+pred <- predict(modelFit,newdata=validSet)
+confusionMatrix(pred,validSet$classe)
+```
+From the results, the prediction accurary is 99.83%, which needs to no more predictors.
+
+##Testing Set Prediction
+Next, we use the random forest model to predict the testing set. As expected, the results are 100% correct.
+```{r}
+pred_test <- predict(modelFit,newdata=testing)
+pred_test
+```
